@@ -1,3 +1,4 @@
-.env
+# Bases de datos
 data/*.db
-mosquitto/config/pwfile
+data/*.db-shm
+data/*.db-wal
