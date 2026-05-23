@@ -1,7 +1,6 @@
 services:
-
   mosquitto:
-    image: eclipse-mosquitto:latest       # amd64 y arm64
+    image: eclipse-mosquitto:latest # amd64 y arm64
     container_name: mosquitto
     ports:
       - "1883:1883"
@@ -18,7 +17,7 @@ services:
     build: ./logger
     container_name: data-logger
     volumes:
-      - ./data:/data                      # ← aquí queda el .db
+      - ./data:/data # ← aquí queda el .db
       - ./logger:/app
     working_dir: /app
     command: python main.py
@@ -30,6 +29,7 @@ services:
       - MQTT_USER=${MQTT_USER}
       - MQTT_PASS=${MQTT_PASS}
       - DB_PATH=/data/sensores.db
+      - MQTT_CAMPOS_ESPERADOS=${MQTT_CAMPOS_ESPERADOS}
 
 volumes:
   mosquitto_data:

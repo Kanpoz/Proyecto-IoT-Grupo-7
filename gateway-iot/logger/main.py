@@ -1,5 +1,5 @@
 """
-data-logger.py
+data-logger
 ==============
 Suscriptor MQTT que persiste lecturas de sensores IoT en SQLite.
 
@@ -142,7 +142,8 @@ def on_message(client, userdata, msg):
         return
 
     # 3. Verificar que tenga al menos los campos esperados del ESP32
-    campos_esperados = {"temp", "hum"}
+    _campos_raw = os.getenv("MQTT_CAMPOS_ESPERADOS", "pm25,pm10,gas,temp,hum,pres")
+    campos_esperados = set(c.strip() for c in _campos_raw.split(",") if c.strip())
     if not campos_esperados.issubset(datos.keys()):
         log.warning("Payload incompleto en [%s]: faltan campos %s", topic, campos_esperados - datos.keys())
         # Se almacena igual pero se advierte — útil durante desarrollo

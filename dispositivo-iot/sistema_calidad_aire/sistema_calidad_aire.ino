@@ -61,13 +61,24 @@
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
+#include <AsyncMqttClient.h>
 
 // ─── LCD ──────────────────────────────────────────────────────────────────────
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // ─── Wi-Fi ────────────────────────────────────────────────────────────────────
-const char* WIFI_SSID     = "Redmi 13";
-const char* WIFI_PASSWORD = "223456789";
+const char* WIFI_SSID     = "FAMILIA_SEPULVEDA";
+const char* WIFI_PASSWORD = "MarcoAurelio48";
+
+// ─── MQTT ─────────────────────────────────────────────────────────────────────
+#define MQTT_HOST    IPAddress(192, 168, 20, 27)
+#define MQTT_PORT    1883
+#define MQTT_USER    "esp32_01"
+#define MQTT_PASS    "mosquitto-esp32-01-2234" 
+#define MQTT_TOPIC   "dispositivos/esp32_01/datos"
+#define MQTT_CLIENT  "esp32_01"
+
+AsyncMqttClient mqttClient;
 
 // ─── Autenticación ────────────────────────────────────────────────────────────
 struct UserAccount {
@@ -152,6 +163,10 @@ int   mvCount = 0, mvIdx = 0;
 
 // ─── FreeRTOS task handle ─────────────────────────────────────────────────────
 TaskHandle_t measurementTaskHandle;
+
+// ─── Cola MQTT (measurementTask → mqttTask) ───────────────────────────────────
+QueueHandle_t mqttQueue;
+TaskHandle_t  mqttTaskHandle;
 
 // ─── Web Server ───────────────────────────────────────────────────────────────
 AsyncWebServer server(80);
@@ -661,6 +676,66 @@ void  ejecutarAlarma(float pm25, float pm10, float g);
 // FreeRTOS task
 void measurementTask(void* pvParameters);
 
+// Functions MQTT
+void onMqttConnect(bool sessionPresent) {
+  Serial.println("MQTT: Conectado al broker.");
+}
+
+void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
+  Serial.println("MQTT: Desconectado. Reconectando en 5s...");
+  if (WiFi.isConnected()) {
+    xTaskCreatePinnedToCore(
+      [](void*) {
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        mqttClient.connect();
+        vTaskDelete(NULL);
+      },
+      "MQTTRecon", 4096, NULL, 1, NULL, 1
+    );
+  }
+}
+
+void publicarMQTT(float pm25, float pm10, float gas,
+                  float temp, float hum,  float pres) {
+  if (!mqttClient.connected()) return;
+
+  char payload[160];
+  snprintf(payload, sizeof(payload),
+    "{\"pm25\":%.2f,\"pm10\":%.1f,\"gas\":%.1f,"
+    "\"temp\":%.2f,\"hum\":%.1f,\"pres\":%.2f}",
+    pm25, pm10, gas, temp, hum, pres
+  );
+
+  mqttClient.publish(MQTT_TOPIC, 1, false, payload);
+  Serial.printf("MQTT: publicado → %s\n", payload);
+}
+
+// =============================================================================
+// mqttTask — Hilo de transmisión MQTT (núcleo 0)
+// Recibe datos de measurementTask por cola y los publica al broker.
+// =============================================================================
+void mqttTask(void* pvParameters) {
+  DatosAmbientales d;
+  for (;;) {
+    // Bloquea hasta recibir un dato de measurementTask
+    if (xQueueReceive(mqttQueue, &d, portMAX_DELAY)) {
+      if (!mqttClient.connected()) {
+        Serial.println("MQTT: sin conexión, dato descartado.");
+        continue;
+      }
+      char payload[160];
+      snprintf(payload, sizeof(payload),
+        "{\"pm25\":%.2f,\"pm10\":%.1f,\"gas\":%.1f,"
+        "\"temp\":%.2f,\"hum\":%.1f,\"pres\":%.2f}",
+        d.pm25, d.pm10, d.gasPPM,
+        d.temp, d.hum,  d.pres
+      );
+      mqttClient.publish(MQTT_TOPIC, 1, false, payload);
+      Serial.printf("MQTT: publicado → %s\n", payload);
+    }
+  }
+}
+
 // =============================================================================
 // SETUP
 // =============================================================================
@@ -737,6 +812,27 @@ void setup() {
   server.on("/alarm/enable", HTTP_POST, [](AsyncWebServerRequest* request) {
     handleAlarmEnable(request);
   });
+
+  // ─── MQTT ─────────────────────────────────────────────────────────────────
+  mqttQueue = xQueueCreate(5, sizeof(DatosAmbientales));
+
+  mqttClient.onConnect(onMqttConnect);
+  mqttClient.onDisconnect(onMqttDisconnect);
+  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+  mqttClient.setCredentials(MQTT_USER, MQTT_PASS);
+  mqttClient.setClientId(MQTT_CLIENT);
+
+  xTaskCreatePinnedToCore(mqttTask, "MQTTTask", 4096, NULL, 1,
+                          &mqttTaskHandle, 1);
+
+  xTaskCreatePinnedToCore(
+    [](void*) {
+      vTaskDelay(pdMS_TO_TICKS(500));
+      if (WiFi.status() == WL_CONNECTED) mqttClient.connect();
+      vTaskDelete(NULL);
+    },
+    "MQTTConnect", 4096, NULL, 1, NULL, 1
+  );
 
   server.begin();
   Serial.println("Servidor web asíncrono iniciado en puerto 80.");
@@ -876,6 +972,14 @@ void measurementTask(void* pvParameters) {
 
         xSemaphoreGive(dataMutex);
       }
+
+      // Enviar snapshot a mqttTask por cola (no bloquea la medición)
+      DatosAmbientales snapshot;
+      if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+        snapshot = datos;
+        xSemaphoreGive(dataMutex);
+      }
+      xQueueSend(mqttQueue, &snapshot, 0);
 
       // 10. Periféricos
       if (alarma) {
