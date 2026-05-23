@@ -46,61 +46,13 @@ git clone https://github.com/Kanpoz/Proyecto-IoT-Grupo-7.git
 cd Proyecto-IoT-Grupo-7/gateway-iot
 ```
 
-### 2. Crear el archivo `.env`
-
-El archivo `.env` **no se incluye en el repositorio** por seguridad. Créalo en `gateway-iot/` con las credenciales que te envíen por un canal seguro:
-
-```bash
-nano .env
-```
-
-Contenido esperado:
-
-```env
-MQTT_USER=admin
-MQTT_PASS=tu_contraseña_segura
-MQTT_CAMPOS_ESPERADOS=pm25,pm10,gas,temp,hum,pres
-```
-
-### 3. Restaurar el archivo `pwfile` de Mosquitto
-
-El archivo `pwfile` **no se incluye en el repositorio**. Tienes dos opciones:
-
-**Opción A — Te lo envían directamente:**
-Copia el archivo recibido a su ubicación:
-
-```bash
-cp /ruta/al/pwfile mosquitto/config/pwfile
-chmod 644 mosquitto/config/pwfile
-```
-
-**Opción B — Generarlo desde cero** (necesitas saber las contraseñas de cada dispositivo):
-
-```bash
-# Crear el archivo vacío con permisos correctos
-touch mosquitto/config/pwfile
-chmod 644 mosquitto/config/pwfile
-
-# Agregar el usuario del gateway
-docker run --rm -it \
-  -v ./mosquitto/config:/mosquitto/config \
-  eclipse-mosquitto \
-  mosquitto_passwd /mosquitto/config/pwfile admin
-
-# Agregar cada dispositivo ESP32
-docker run --rm -it \
-  -v ./mosquitto/config:/mosquitto/config \
-  eclipse-mosquitto \
-  mosquitto_passwd /mosquitto/config/pwfile esp32_01
-```
-
-### 4. Levantar los servicios
+### 2. Levantar los servicios
 
 ```bash
 docker compose up -d --build
 ```
 
-### 5. Verificar que todo está corriendo
+### 3. Verificar que todo está corriendo
 
 ```bash
 docker compose ps
