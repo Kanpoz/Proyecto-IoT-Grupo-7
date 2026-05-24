@@ -43,6 +43,11 @@ services:
       - UBIDOTS_TOKEN=${UBIDOTS_TOKEN}
       - DEVICE_LABEL=${DEVICE_LABEL}
       - DB_PATH=/data/sensores.db
+      # Credenciales para el puente de comandos Ubidots → ESP32
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+      - MQTT_USER=${MQTT_USER}
+      - MQTT_PASS=${MQTT_PASS}
 
   ia-analisis:
     build: ./ia

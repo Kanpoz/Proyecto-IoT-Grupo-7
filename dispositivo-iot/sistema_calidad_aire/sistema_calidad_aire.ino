@@ -62,6 +62,7 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
 #include <AsyncMqttClient.h>
+#include <ArduinoJson.h>
 
 // ─── LCD ──────────────────────────────────────────────────────────────────────
 LiquidCrystal_I2C lcd(0x27, 16, 2);
@@ -77,6 +78,7 @@ const char* WIFI_PASSWORD = "MarcoAurelio48";
 #define MQTT_PASS    "mosquitto-esp32-01-2234" 
 #define MQTT_TOPIC   "dispositivos/esp32_01/datos"
 #define MQTT_CLIENT  "esp32_01"
+#define MQTT_TOPIC_CMD  "dispositivos/esp32_01/comandos"
 
 AsyncMqttClient mqttClient;
 
@@ -679,6 +681,36 @@ void measurementTask(void* pvParameters);
 // Functions MQTT
 void onMqttConnect(bool sessionPresent) {
   Serial.println("MQTT: Conectado al broker.");
+  // Suscribirse al topic de comandos
+  mqttClient.subscribe(MQTT_TOPIC_CMD, 1);
+  Serial.printf("MQTT: Suscrito a %s\n", MQTT_TOPIC_CMD);
+}
+
+void onMqttMessage(char* topic, char* payload,
+                   AsyncMqttClientMessageProperties properties,
+                   size_t len, size_t index, size_t total) {
+  // Copiar payload a un buffer terminado en null
+  char buf[64];
+  size_t copyLen = (len < sizeof(buf) - 1) ? len : sizeof(buf) - 1;
+  memcpy(buf, payload, copyLen);
+  buf[copyLen] = '\0';
+
+  Serial.printf("MQTT CMD recibido [%s]: %s\n", topic, buf);
+
+  // Parsear {"cmd":"alarm_off"}
+  StaticJsonDocument<128> doc;
+  if (deserializeJson(doc, buf) != DeserializationError::Ok) return;
+
+  const char* cmd = doc["cmd"];
+  if (cmd && strcmp(cmd, "alarm_off") == 0) {
+    digitalWrite(ALARMA_PIN, LOW);
+    if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      datos.alarmaActiva     = false;
+      datos.alarmaSilenciada = true;
+      xSemaphoreGive(dataMutex);
+    }
+    Serial.println("MQTT CMD: Alarma silenciada remotamente desde Ubidots.");
+  }
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
@@ -818,6 +850,7 @@ void setup() {
 
   mqttClient.onConnect(onMqttConnect);
   mqttClient.onDisconnect(onMqttDisconnect);
+  mqttClient.onMessage(onMqttMessage);
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   mqttClient.setCredentials(MQTT_USER, MQTT_PASS);
   mqttClient.setClientId(MQTT_CLIENT);
