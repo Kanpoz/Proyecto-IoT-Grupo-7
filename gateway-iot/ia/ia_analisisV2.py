@@ -4,18 +4,19 @@ import sqlite3
 import time
 import socket
 from google import genai
+import os
 
 # --- CONFIGURACIÓN ---
-TOKEN = "BBUS-oZorRDKlVvW5tTBbcCNTufZy7VMCtv"
-DEVICE_LABEL = "raspberrypi5"
-DB_PATH = "iot.db"  # Base de datos de la Versión 2 [4]
-# Reemplaza con tu API KEY activa
-client_ia = genai.Client(api_key="AIzaSyCB983WilM_ycey63AX8yQl8vyApkk3SMk")
+TOKEN        = os.getenv("UBIDOTS_TOKEN")
+DEVICE_LABEL = os.getenv("DEVICE_LABEL")
+DB_PATH      = os.getenv("DB_PATH", "/data/sensores.db")
+GEMINI_KEY   = os.getenv("GEMINI_API_KEY")
+client_ia    = genai.Client(api_key=GEMINI_KEY)
 
 def on_message(client, userdata, msg):
     # El valor llega como "1.0" desde el widget de Ubidots [5, 6]
     if msg.payload.decode() == "1.0":
-        print("Solicitud de IA recibida. Procesando tendencia desde iot.db...")
+        print("Solicitud de IA recibida. Procesando tendencia desde sensores.db...")
         ejecutar_analisis_y_publicar(client)
 
 def ejecutar_analisis_y_publicar(mqtt_client):

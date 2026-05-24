@@ -8,9 +8,9 @@ import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
-TOKEN        = os.getenv("UBIDOTS_TOKEN", "BBUS-oZorRDKlVvW5tTBbcCNTufZy7VMCtv")
-DEVICE_LABEL = os.getenv("DEVICE_LABEL", "raspberrypi5")
-DB_PATH      = os.getenv("DB_PATH", "iot.db")
+TOKEN        = os.getenv("UBIDOTS_TOKEN")
+DEVICE_LABEL = os.getenv("DEVICE_LABEL")
+DB_PATH      = os.getenv("DB_PATH", "/data/sensores.db")
 MQTT_BROKER  = "industrial.api.ubidots.com"
 POLL_INTERVAL = 2
 

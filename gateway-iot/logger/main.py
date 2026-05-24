@@ -14,7 +14,7 @@ Variables de entorno:
   MQTT_USER   Usuario MQTT
   MQTT_PASS   Contraseña MQTT
   MQTT_TOPIC  Topic a suscribir   (default: dispositivos/+/datos)
-  DB_PATH     Ruta de la DB       (default: /data/iot.db)
+  DB_PATH     Ruta de la DB       (default: /data/sensores.db)
 """
 
 import os
@@ -34,7 +34,7 @@ MQTT_PORT  = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USER  = os.getenv("MQTT_USER")
 MQTT_PASS  = os.getenv("MQTT_PASS")
 MQTT_TOPIC = os.getenv("MQTT_TOPIC", "dispositivos/+/datos")
-DB_PATH    = os.getenv("DB_PATH",    "/data/iot.db")
+DB_PATH    = os.getenv("DB_PATH",    "/data/sensores.db")
 
 RECONNECT_DELAY = 5   # segundos entre intentos de reconexión
 

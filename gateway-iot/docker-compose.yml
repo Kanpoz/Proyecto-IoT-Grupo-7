@@ -1,6 +1,6 @@
 services:
   mosquitto:
-    image: eclipse-mosquitto:latest # amd64 y arm64
+    image: eclipse-mosquitto:latest
     container_name: mosquitto
     ports:
       - "1883:1883"
@@ -11,13 +11,11 @@ services:
     environment:
       - TZ=America/Bogota
 
-  # Servicio que lee MQTT y escribe en SQLite
-  # (puedes usar Python, Node-RED, etc.)
   data-logger:
     build: ./logger
     container_name: data-logger
     volumes:
-      - ./data:/data # ← aquí queda el .db
+      - ./data:/data
       - ./logger:/app
     working_dir: /app
     command: python main.py
@@ -30,6 +28,37 @@ services:
       - MQTT_PASS=${MQTT_PASS}
       - DB_PATH=/data/sensores.db
       - MQTT_CAMPOS_ESPERADOS=${MQTT_CAMPOS_ESPERADOS}
+
+  gateway-ubidots:
+    build: ./ubidots
+    container_name: gateway-ubidots
+    volumes:
+      - ./data:/data
+    working_dir: /app
+    command: python gateway_ubidots_v3.py
+    depends_on:
+      - data-logger
+    restart: unless-stopped
+    environment:
+      - UBIDOTS_TOKEN=${UBIDOTS_TOKEN}
+      - DEVICE_LABEL=${DEVICE_LABEL}
+      - DB_PATH=/data/sensores.db
+
+  ia-analisis:
+    build: ./ia
+    container_name: ia-analisis
+    volumes:
+      - ./data:/data
+    working_dir: /app
+    command: python ia_analisisV2.py
+    depends_on:
+      - gateway-ubidots
+    restart: unless-stopped
+    environment:
+      - UBIDOTS_TOKEN=${UBIDOTS_TOKEN}
+      - DEVICE_LABEL=${DEVICE_LABEL}
+      - DB_PATH=/data/sensores.db
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
 
 volumes:
   mosquitto_data:
