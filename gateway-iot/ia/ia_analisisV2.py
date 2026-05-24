@@ -1,10 +1,13 @@
 import paho.mqtt.client as mqtt
 import json
 import sqlite3
-import time
 import socket
 from google import genai
 import os
+import sys
+
+sys.stdout.reconfigure(line_buffering=True)
+print("Módulo IA V2 iniciando...", flush=True)
 
 # --- CONFIGURACIÓN ---
 TOKEN        = os.getenv("UBIDOTS_TOKEN")
@@ -68,12 +71,23 @@ def ejecutar_analisis_y_publicar(mqtt_client):
         print(f"Error en el proceso de IA: {e}")
 
 # --- CONFIGURACIÓN DEL CLIENTE MQTT ---
-client = mqtt.Client()
-# Autenticación requerida: Token como usuario y contraseña [13-15]
-client.username_pw_set(TOKEN, TOKEN) 
+client = mqtt.Client(
+    callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+    client_id="ia-analisis",
+)
+
+def on_connect(client, userdata, flags, rc, props=None):
+    if rc == 0:
+        print("Conectado a Ubidots MQTT")
+        client.subscribe(f"/v1.6/devices/{DEVICE_LABEL}/solicitud-ia/lv")
+        print(f"Suscrito a solicitud-ia/lv")
+    else:
+        print(f"Fallo conexión Ubidots, rc={rc}")
+
+client.username_pw_set(TOKEN, "")
+client.on_connect = on_connect
 client.on_message = on_message
 
-print("Módulo IA V2 conectado y esperando solicitudes desde Ubidots...")
 # Intento de conexión con diagnóstico DNS y manejo de errores
 host_mqtt = "industrial.api.ubidots.com"
 try:
