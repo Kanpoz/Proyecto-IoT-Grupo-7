@@ -758,9 +758,11 @@ void mqttTask(void* pvParameters) {
       char payload[160];
       snprintf(payload, sizeof(payload),
         "{\"pm25\":%.2f,\"pm10\":%.1f,\"gas\":%.1f,"
-        "\"temp\":%.2f,\"hum\":%.1f,\"pres\":%.2f}",
+        "\"temp\":%.2f,\"hum\":%.1f,\"pres\":%.2f,"
+        "\"alarma\":%d}",
         d.pm25, d.pm10, d.gasPPM,
-        d.temp, d.hum,  d.pres
+        d.temp, d.hum, d.pres,
+        d.alarmaActiva ? 1 : 0
       );
       mqttClient.publish(MQTT_TOPIC, 1, false, payload);
       Serial.printf("MQTT: publicado → %s\n", payload);
