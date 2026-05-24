@@ -15,25 +15,99 @@ Sistema IoT de bajo costo para monitorear la calidad del aire en la región Saba
 │       └── sistema_calidad_aire.ino   ← Firmware ESP32
 ├── gateway-iot
 │   ├── data/                          ← Volumen SQLite (generado automáticamente)
-│   ├── docker-compose.yml             ← Definición de servicios
+│   ├── docker-compose.yml             ← Definición de los 4 servicios
 │   ├── logger/
 │   │   ├── Dockerfile
 │   │   └── main.py                    ← Suscriptor MQTT → SQLite
-│   └── mosquitto/
-│       └── config/
-│           └── mosquitto.conf         ← Configuración del broker
+│   ├── mosquitto/
+│   │   └── config/
+│   │       ├── mosquitto.conf         ← Configuración del broker
+│   │       └── pwfile                 ← Usuarios y contraseñas (no versionar)
+│   ├── ubidots/
+│   │   ├── Dockerfile
+│   │   └── gateway_ubidots_v3.py     ← Puente SQLite → Ubidots (bidireccional)
+│   ├── ia/
+│   │   ├── Dockerfile
+│   │   └── ia_analisisV2.py          ← Análisis de tendencias con Gemini
+│   └── .env                          ← Variables de entorno (no versionar)
 └── README.md
 ```
 
 ---
 
+## Arquitectura general
+
+```
+ESP32 (sensores)
+  └── measurementTask (núcleo 0)
+        └── cola FreeRTOS
+              └── mqttTask (núcleo 1)
+                    └── MQTT → Mosquitto :1883
+                          ├── data-logger
+                          │     └── SQLite /data/sensores.db
+                          └── gateway-ubidots
+                                ├── polling SQLite cada 2 s → Ubidots
+                                └── suscrito a Ubidots → reenvía comandos → ESP32
+                                      └── ia-analisis
+                                            └── solicitud desde Ubidots → Gemini → Ubidots
+```
+
+### Flujo de comandos (alarma remota)
+
+```
+Ubidots (widget botón)
+  └── MQTT /v1.6/devices/{device}/comandos/lv
+        └── gateway-ubidots (on_message)
+              └── MQTT dispositivos/esp32_01/comandos
+                    └── ESP32 → apaga buzzer/LED
+```
+
+---
+
+## Servicios Docker
+
+| Servicio          | Imagen                   | Responsabilidad                                |
+| ----------------- | ------------------------ | ---------------------------------------------- |
+| `mosquitto`       | eclipse-mosquitto:latest | Broker MQTT local, auth por dispositivo        |
+| `data-logger`     | python (build local)     | Suscriptor MQTT, persiste lecturas en SQLite   |
+| `gateway-ubidots` | python (build local)     | Publica a Ubidots y recibe comandos de vuelta  |
+| `ia-analisis`     | python (build local)     | Análisis de tendencias con Gemini bajo demanda |
+
+---
+
 ## Requisitos previos
 
-| Herramienta | Versión mínima |
-|---|---|
-| Docker + Docker Compose | 24.x |
-| Git | 2.x |
-| Arduino IDE | 2.x (para el firmware del ESP32) |
+| Herramienta             | Versión mínima                   |
+| ----------------------- | -------------------------------- |
+| Docker + Docker Compose | 24.x                             |
+| Git                     | 2.x                              |
+| Arduino IDE             | 2.x (para el firmware del ESP32) |
+
+---
+
+## Variables de entorno
+
+Crear el archivo `gateway-iot/.env` con las siguientes variables antes de levantar los servicios:
+
+```env
+# Mosquitto
+MQTT_USER=admin
+MQTT_PASS=tu_contraseña_admin
+MQTT_CAMPOS_ESPERADOS=pm25,pm10,gas,temp,hum,pres
+
+# Ubidots
+UBIDOTS_TOKEN=tu_token_ubidots
+DEVICE_LABEL_esp32_01=esp32_01
+DEVICE_LABEL_raspberry_pi_01=raspberrypi5
+
+# Gemini
+GEMINI_API_KEY=tu_api_key_gemini
+
+# Base de datos
+DB_PATH=/data/sensores.db
+```
+
+> El `.env` y el `pwfile` de Mosquitto no se versionan — se comparten por canal seguro.
 
 ---
 
@@ -46,40 +120,56 @@ git clone https://github.com/Kanpoz/Proyecto-IoT-Grupo-7.git
 cd Proyecto-IoT-Grupo-7/gateway-iot
 ```
 
-### 2. Levantar los servicios
+### 2. Copiar archivos de configuración sensibles
+
+```bash
+cp /ruta/.env .env
+cp /ruta/pwfile mosquitto/config/pwfile
+chmod 644 mosquitto/config/pwfile
+```
+
+### 3. Levantar los servicios
 
 ```bash
 docker compose up -d --build
 ```
 
-### 3. Verificar que todo está corriendo
+### 4. Verificar que todo está corriendo
 
 ```bash
 docker compose ps
 ```
 
-Deberías ver los tres contenedores con estado `running`:
+Deberías ver los cuatro contenedores con estado `Up`:
 
 ```
-NAME           STATUS
-mosquitto      Up
-data-logger    Up
+NAME               STATUS
+mosquitto          Up
+data-logger        Up
+gateway-ubidots    Up
+ia-analisis        Up
 ```
 
-Verificar los logs:
+### 5. Verificar los logs
 
 ```bash
 docker compose logs -f
 ```
 
-Líneas esperadas en los logs:
+Líneas esperadas:
 
 ```
-mosquitto   | mosquitto version 2.x starting
-mosquitto   | Config loaded from /mosquitto/config/mosquitto.conf
-data-logger | Base de datos lista: /data/sensores.db
-data-logger | Conectado al broker MQTT (mosquitto:1883)
-data-logger | Suscrito a: dispositivos/+/datos
+mosquitto         | mosquitto version 2.x starting
+mosquitto         | Config loaded from /mosquitto/config/mosquitto.conf
+data-logger       | Base de datos lista: /data/sensores.db
+data-logger       | Conectado al broker MQTT (mosquitto:1883)
+data-logger       | Suscrito a: dispositivos/+/datos
+gateway-ubidots   | Conectado a Ubidots MQTT
+gateway-ubidots   | Conectado a Mosquitto local
+gateway-ubidots   | Suscrito a comandos Ubidots: /v1.6/devices/.../comandos/lv
+gateway-ubidots   | Gateway activo. Reanudando desde ID ...
+ia-analisis       | Conectado a Ubidots MQTT
+ia-analisis       | Suscrito a solicitud-ia/lv
 ```
 
 ---
@@ -118,21 +208,33 @@ docker exec -it data-logger \
   [print(r) for r in c.execute('SELECT * FROM lecturas ORDER BY id DESC LIMIT 5')]"
 ```
 
+Para probar el puente de comandos sin Ubidots:
+
+```bash
+# Simular un comando alarm_off como si viniera del gateway
+docker exec -it mosquitto mosquitto_pub \
+  -h localhost \
+  -t "dispositivos/esp32_01/comandos" \
+  -m '{"cmd":"alarm_off"}' \
+  -u admin \
+  -P tu_contraseña
+```
+
 ---
 
 ## Puesta en marcha del dispositivo IoT (ESP32)
 
 ### Requisitos de hardware
 
-| Componente | Interfaz |
-|---|---|
-| ESP32 DevKit | — |
-| PMS5003 (sensor PM) | UART2 — RX:GPIO16, TX:GPIO17 |
+| Componente                   | Interfaz                               |
+| ---------------------------- | -------------------------------------- |
+| ESP32 DevKit                 | —                                      |
+| PMS5003 (sensor PM)          | UART2 — RX:GPIO16, TX:GPIO17           |
 | BMP280 (presión/temperatura) | I2C — SDA:GPIO21, SCL:GPIO22, dir:0x76 |
-| DHT11 (humedad/temperatura) | Digital — GPIO27 |
-| MQ-135 (gases) | ADC — GPIO34 |
-| LCD 16x2 I2C | I2C — dir:0x27 |
-| LED/Buzzer | Digital — GPIO13 |
+| DHT11 (humedad/temperatura)  | Digital — GPIO27                       |
+| MQ-135 (gases)               | ADC — GPIO34                           |
+| LCD 16x2 I2C                 | I2C — dir:0x27                         |
+| LED/Buzzer                   | Digital — GPIO13                       |
 
 ### Librerías Arduino requeridas
 
@@ -146,6 +248,7 @@ Instalar desde el Gestor de Librerías del Arduino IDE:
 - `ESPAsyncWebServer`
 - `AsyncTCP`
 - `AsyncMqttClient`
+- `ArduinoJson` (Benoit Blanchon) ← requerida para parsear comandos MQTT
 
 ### Configuración del firmware
 
@@ -179,6 +282,7 @@ Wi-Fi conectado. IP: 192.168.X.X
 Servidor web asíncrono iniciado en puerto 80.
 === SISTEMA DE CALIDAD DE AIRE INICIADO ===
 MQTT: Conectado al broker.
+MQTT: Suscrito a dispositivos/esp32_01/comandos
 MQTT: publicado → {"pm25":0.10,"pm10":0.0,"gas":45.2,"temp":23.1,"hum":58.0,"pres":748.1}
 ```
 
@@ -192,11 +296,11 @@ http://192.168.X.X
 
 Credenciales de acceso:
 
-| Usuario | Perfil |
-|---|---|
-| `admin` | Administrador |
+| Usuario    | Perfil            |
+| ---------- | ----------------- |
+| `admin`    | Administrador     |
 | `alcaldia` | Personal alcaldía |
-| `tecnico` | Técnico de campo |
+| `tecnico`  | Técnico de campo  |
 
 > Las contraseñas se comparten por canal seguro.
 
@@ -234,51 +338,41 @@ docker compose ps
 # Ver logs en tiempo real
 docker compose logs -f
 
-# Ver solo logs de un servicio
+# Ver logs de un servicio específico
 docker compose logs -f mosquitto
 docker compose logs -f data-logger
+docker compose logs -f gateway-ubidots
+docker compose logs -f ia-analisis
 
 # Detener todos los servicios
 docker compose down
 
 # Reiniciar un servicio específico
-docker compose restart mosquitto
+docker compose restart gateway-ubidots
+
+# Reconstruir e iniciar después de cambios en el código
+docker compose up -d --build gateway-ubidots
 
 # Consultar las últimas 10 lecturas en SQLite
 docker exec -it data-logger \
   python -c "import sqlite3; c=sqlite3.connect('/data/sensores.db'); \
   [print(r) for r in c.execute('SELECT * FROM lecturas ORDER BY id DESC LIMIT 10')]"
+
+# Consultar el último ID enviado a Ubidots
+docker exec -it data-logger \
+  python -c "import sqlite3; c=sqlite3.connect('/data/sensores.db'); \
+  print(c.execute(\"SELECT valor FROM gateway_state WHERE clave='ultimo_id'\").fetchone())"
 ```
 
 ---
 
 ## Arquitectura de hilos — ESP32
 
-| Hilo | Núcleo | Responsabilidad |
-|---|---|---|
-| `loop()` | 1 | Vacío — eliminado con `vTaskDelete(NULL)` |
-| `measurementTask` | 0 | Lectura de sensores, promedios, alertas, LCD |
-| `mqttTask` | 1 | Transmisión MQTT al gateway vía cola FreeRTOS |
-| `async_tcp` | 1 | Servidor web embebido |
+| Hilo              | Núcleo | Responsabilidad                               |
+| ----------------- | ------ | --------------------------------------------- |
+| `loop()`          | 1      | Vacío — eliminado con `vTaskDelete(NULL)`     |
+| `measurementTask` | 0      | Lectura de sensores, promedios, alertas, LCD  |
+| `mqttTask`        | 1      | Transmisión MQTT al gateway vía cola FreeRTOS |
+| `async_tcp`       | 1      | Servidor web embebido y recepción de comandos |
 
 La medición y la transmisión están desacopladas mediante una cola FreeRTOS — si el broker no está disponible, los sensores siguen midiendo sin interrupciones.
-
----
-
-## Flujo de datos
-
-```
-ESP32 (sensores)
-  └── measurementTask (núcleo 0)
-        └── cola FreeRTOS
-              └── mqttTask (núcleo 1)
-                    └── MQTT → Mosquitto :1883
-                          └── data-logger (Python)
-                                └── SQLite /data/sensores.db
-```
-
----
-
-## Uso de IA en el desarrollo
-
-Este proyecto utilizó **Claude (Anthropic)** como asistente de desarrollo. Ver la sección de IA en la Wiki del proyecto para el detalle de consultas, validaciones y aplicación específica a la solución.
