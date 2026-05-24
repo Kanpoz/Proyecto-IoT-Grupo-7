@@ -2,3 +2,7 @@
 data/*.db
 data/*.db-shm
 data/*.db-wal
+
+# Archivos de configuración
+.env
+*.env
