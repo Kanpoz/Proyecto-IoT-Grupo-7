@@ -41,7 +41,7 @@ services:
     restart: unless-stopped
     environment:
       - UBIDOTS_TOKEN=${UBIDOTS_TOKEN}
-      - DEVICE_LABEL=${DEVICE_LABEL}
+      - DEVICE_LABEL=${DEVICE_LABEL_esp32_01}
       - DB_PATH=/data/sensores.db
       # Credenciales para el puente de comandos Ubidots → ESP32
       - MQTT_HOST=mosquitto
@@ -61,7 +61,7 @@ services:
     restart: unless-stopped
     environment:
       - UBIDOTS_TOKEN=${UBIDOTS_TOKEN}
-      - DEVICE_LABEL=${DEVICE_LABEL}
+      - DEVICE_LABEL=${DEVICE_LABEL_raspberry_pi_01}
       - DB_PATH=/data/sensores.db
       - GEMINI_API_KEY=${GEMINI_API_KEY}
 
